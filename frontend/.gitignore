@@ -8,7 +8,30 @@
 /coverage
 
 # next.js
-/.next/
+/.next/@"
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+venv/
+env/
+
+# Database
+*.db
+*.sqlite
+
+# Node
+node_modules/
+.next/
+
+# IDE
+.vscode/
+.idea/
+"@ | Out-File -FilePath .gitignore -Encoding utf8
 /out/
 
 # production
