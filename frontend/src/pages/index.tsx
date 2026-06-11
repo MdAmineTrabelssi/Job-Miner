@@ -2,8 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import axios from 'axios';
 
-const API_URL = 'http://localhost:8000/api/v1';
-
+const API_URL = 'https://job-miner-2.onrender.com/api/v1';
 export default function Home() {
   // States
   const [cvAnalysis, setCvAnalysis] = useState(null);
