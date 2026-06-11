@@ -63,6 +63,47 @@ async def search_jobs(query: str, location: str = ""):
     return {"jobs": jobs, "count": len(jobs)}
 
 
+# ============ RECOMMENDED JOBS (NOUVEAU) ============
+@router.get("/recommended-jobs")
+async def get_recommended_jobs(db: Session = Depends(get_db)):
+    """Retourne les offres recommandées automatiquement basées sur le CV"""
+    resume = db.query(Resume).filter(Resume.user_id == 1).order_by(Resume.id.desc()).first()
+    
+    if not resume:
+        raise HTTPException(404, "Aucun CV trouvé. Veuillez d'abord analyser un CV.")
+    
+    # Récupérer les compétences du CV
+    cv_skills = resume.analysis_data.get('sections', {}).get('skills', [])
+    
+    # Créer une requête de recherche basée sur les compétences
+    if cv_skills:
+        search_query = ' '.join(cv_skills[:3])
+    else:
+        search_query = "developer"
+    
+    # Rechercher des offres
+    jobs = await job_agent.search_jobs(search_query, "")
+    
+    # Trier par score de match
+    jobs_with_scores = []
+    for job in jobs:
+        match_result = await matching_agent.analyze_match(resume.analysis_data, job)
+        jobs_with_scores.append({
+            **job,
+            'match_score': match_result['match_percentage'],
+            'missing_skills': match_result['missing_skills'][:5],
+            'explanation': match_result['explanation']
+        })
+    
+    # Trier par score décroissant
+    jobs_with_scores.sort(key=lambda x: x['match_score'], reverse=True)
+    
+    return {
+        'recommended_jobs': jobs_with_scores[:10],
+        'based_on_skills': cv_skills[:5]
+    }
+
+
 # ============ JOB MATCHING ============
 @router.post("/match-job")
 async def match_with_job(job: dict, db: Session = Depends(get_db)):

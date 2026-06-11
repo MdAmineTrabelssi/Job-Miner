@@ -1,8 +1,9 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import axios from 'axios';
 
-const API_URL = 'https://job-miner-2.onrender.com/api/v1';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://job-miner-2.onrender.com/api/v1';
+
 export default function Home() {
   // States
   const [cvAnalysis, setCvAnalysis] = useState(null);
@@ -14,6 +15,8 @@ export default function Home() {
   const [selectedJob, setSelectedJob] = useState(null);
   const [interviewPrep, setInterviewPrep] = useState(null);
   const [roadmap, setRoadmap] = useState(null);
+  const [recommendedJobs, setRecommendedJobs] = useState([]);
+  const [recommendationSkills, setRecommendationSkills] = useState([]);
   
   // Simulation states
   const [simulation, setSimulation] = useState(null);
@@ -22,6 +25,13 @@ export default function Home() {
   const [scores, setScores] = useState([]);
   const [finalResult, setFinalResult] = useState(null);
   const [isSimulationActive, setIsSimulationActive] = useState(false);
+
+  // Load recommended jobs when CV is analyzed
+  useEffect(() => {
+    if (cvAnalysis) {
+      loadRecommendedJobs();
+    }
+  }, [cvAnalysis]);
 
   // Dropzone
   const onDrop = useCallback(async (files) => {
@@ -61,6 +71,18 @@ export default function Home() {
     } catch (error) {
       console.error('Error:', error);
       alert('Error searching jobs');
+    }
+    setLoading(false);
+  };
+
+  const loadRecommendedJobs = async () => {
+    setLoading(true);
+    try {
+      const response = await axios.get(`${API_URL}/recommended-jobs`);
+      setRecommendedJobs(response.data.recommended_jobs || []);
+      setRecommendationSkills(response.data.based_on_skills || []);
+    } catch (error) {
+      console.error('Error loading recommendations:', error);
     }
     setLoading(false);
   };
@@ -333,7 +355,48 @@ export default function Home() {
           <div>
             <h1 style={{ fontSize: '28px', fontWeight: 'bold', marginBottom: '8px', color: '#1a1a2e' }}>Opportunities</h1>
             <p style={{ color: '#6b7280', marginBottom: '32px' }}>Find roles that match your skills</p>
-            
+
+            {/* Recommendations Section */}
+            {recommendedJobs.length > 0 && (
+              <div style={{ marginBottom: '32px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                  <h2 style={{ fontSize: '18px', fontWeight: 'bold' }}>🎯 Recommended for you</h2>
+                  {recommendationSkills.length > 0 && (
+                    <span style={{ fontSize: '12px', color: '#6b7280' }}>Based on: {recommendationSkills.slice(0, 3).join(', ')}</span>
+                  )}
+                </div>
+                {recommendedJobs.map((job: any, i: number) => (
+                  <div key={i} style={styles.jobCard} onClick={() => matchWithJob(job)}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={styles.jobTitle}>{job.title}</div>
+                        <div style={styles.jobCompany}>{job.company} - {job.location}</div>
+                        <div style={{ fontSize: '12px', color: '#9ca3af', margin: '8px 0' }}>
+                          {job.salary_range} - {job.experience_level}
+                        </div>
+                        <div style={{ marginTop: '8px' }}>
+                          {(job.requirements?.skills || []).slice(0, 4).map((skill: string, idx: number) => (
+                            <span key={idx} style={styles.skillBadge}>{skill}</span>
+                          ))}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ 
+                          fontSize: '24px', 
+                          fontWeight: 'bold', 
+                          color: job.match_score >= 70 ? '#2b6e3c' : job.match_score >= 50 ? '#b45b0a' : '#6c6f78'
+                        }}>
+                          {Math.round(job.match_score)}%
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#6c6f78' }}>Match</div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Search Section */}
             <div style={styles.searchContainer}>
               <input 
                 type="text" 
@@ -349,7 +412,7 @@ export default function Home() {
             {jobs.length === 0 && !searchQuery && (
               <div style={styles.card}>
                 <p style={{ textAlign: 'center', color: '#6b7280' }}>
-                  Enter a search term like "Python", "React", or "DevOps" to see job opportunities
+                  Upload your CV first to get personalized job recommendations
                 </p>
               </div>
             )}
@@ -370,7 +433,7 @@ export default function Home() {
                       {job.salary_range} - {job.experience_level}
                     </div>
                     <div style={{ marginTop: '8px' }}>
-                      {(job.requirements?.skills || []).slice(0, 5).map((skill: string, idx: number) => (
+                      {(job.requirements?.skills || []).slice(0, 4).map((skill: string, idx: number) => (
                         <span key={idx} style={styles.skillBadge}>{skill}</span>
                       ))}
                     </div>
@@ -482,9 +545,6 @@ export default function Home() {
                   <div style={styles.questionTitle}>{simulation.questions[currentQuestionIndex].question}</div>
                   <div style={{ fontSize: '12px', color: '#9ca3af', marginTop: '8px' }}>
                     Type: {simulation.questions[currentQuestionIndex].type} | Points: {simulation.questions[currentQuestionIndex].points_max}
-                  </div>
-                  <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #e5e7eb' }}>
-                    <strong>Expected points:</strong> {simulation.questions[currentQuestionIndex].expected_answer}
                   </div>
                 </div>
                 
@@ -626,7 +686,7 @@ export default function Home() {
         <div style={styles.modal} onClick={() => setMatchResult(null)}>
           <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
             <div style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '16px' }}>Match Analysis</div>
-            <div style={styles.modalScore}>{matchResult.match_percentage}%</div>
+            <div style={styles.modalScore}>{Math.round(matchResult.match_percentage)}%</div>
             <p style={{ color: '#6b7280', marginBottom: '24px' }}>Match Score</p>
             
             {matchResult.missing_skills?.length > 0 && (
@@ -640,12 +700,20 @@ export default function Home() {
               </div>
             )}
             
+            <div style={{ marginBottom: '24px' }}>
+              <div style={{ fontWeight: 500, marginBottom: '8px' }}>Analysis:</div>
+              <p style={{ fontSize: '13px', color: '#4a5568' }}>{matchResult.explanation}</p>
+            </div>
+            
             <div style={{ display: 'flex', gap: '12px' }}>
               <button onClick={() => setMatchResult(null)} style={{ ...styles.searchButton, background: '#e5e7eb', color: '#1a1a2e' }}>
                 Close
               </button>
               <button onClick={prepareInterview} style={styles.searchButton}>
                 Prepare Interview
+              </button>
+              <button onClick={startSimulation} style={{ ...styles.searchButton, background: '#2b6e3c' }}>
+                Simulate
               </button>
             </div>
           </div>
