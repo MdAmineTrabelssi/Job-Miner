@@ -63,25 +63,27 @@ async def search_jobs(query: str, location: str = ""):
     return {"jobs": jobs, "count": len(jobs)}
 
 
-# ============ RECOMMENDED JOBS (NOUVEAU) ============
+# ============ RECOMMENDED JOBS (VERSION AMÉLIORÉE - BASÉE SUR LE DOMAINE) ============
 @router.get("/recommended-jobs")
 async def get_recommended_jobs(db: Session = Depends(get_db)):
-    """Retourne les offres recommandées automatiquement basées sur le CV"""
+    """Retourne les offres recommandées basées sur le domaine du CV"""
     resume = db.query(Resume).filter(Resume.user_id == 1).order_by(Resume.id.desc()).first()
     
     if not resume:
         raise HTTPException(404, "Aucun CV trouvé. Veuillez d'abord analyser un CV.")
     
-    # Récupérer les compétences du CV
+    # Détecter le domaine du CV
+    from app.agents.matching_agent import MatchingAgent
+    temp_agent = MatchingAgent()
     cv_skills = resume.analysis_data.get('sections', {}).get('skills', [])
+    cv_text = resume.content_text
+    cv_domain_info = temp_agent.detect_cv_domain(cv_skills, cv_text)
     
-    # Créer une requête de recherche basée sur les compétences
-    if cv_skills:
-        search_query = ' '.join(cv_skills[:3])
-    else:
-        search_query = "developer"
+    # Termes de recherche basés sur le domaine détecté
+    search_terms = cv_domain_info.get('search_terms', ['developer', 'engineer'])
+    search_query = search_terms[0]
     
-    # Rechercher des offres
+    # Rechercher des jobs
     jobs = await job_agent.search_jobs(search_query, "")
     
     # Trier par score de match
@@ -92,7 +94,9 @@ async def get_recommended_jobs(db: Session = Depends(get_db)):
             **job,
             'match_score': match_result['match_percentage'],
             'missing_skills': match_result['missing_skills'][:5],
-            'explanation': match_result['explanation']
+            'explanation': match_result['explanation'],
+            'domain_match': match_result.get('domain_match_score', 0),
+            'detected_domain': match_result.get('domain', cv_domain_info['display_name'])
         })
     
     # Trier par score décroissant
@@ -100,7 +104,9 @@ async def get_recommended_jobs(db: Session = Depends(get_db)):
     
     return {
         'recommended_jobs': jobs_with_scores[:10],
-        'based_on_skills': cv_skills[:5]
+        'detected_domain': cv_domain_info['display_name'],
+        'based_on_skills': cv_skills[:8],
+        'search_used': search_query
     }
 
 
@@ -222,3 +228,37 @@ async def get_dashboard(db: Session = Depends(get_db)):
 @router.get("/health")
 async def health_check():
     return {"status": "healthy", "service": "Job-Miner API"}
+
+
+# ============ FORCE EXTRACT SKILLS (UTILITY) ============
+@router.post("/force-extract-skills")
+async def force_extract_skills(db: Session = Depends(get_db)):
+    """Force l'extraction des compétences depuis le dernier CV"""
+    resume = db.query(Resume).filter(Resume.user_id == 1).order_by(Resume.id.desc()).first()
+    
+    if not resume:
+        raise HTTPException(404, "Aucun CV trouvé")
+    
+    # Re-analyser les compétences
+    from app.agents.cv_analyzer import CVAnalyzerAgent
+    temp_agent = CVAnalyzerAgent()
+    sections = temp_agent.extract_sections(resume.content_text)
+    
+    # Mettre à jour
+    if 'sections' not in resume.analysis_data:
+        resume.analysis_data['sections'] = {}
+    resume.analysis_data['sections']['skills'] = sections.get('skills', [])
+    resume.analysis_data['sections']['education'] = sections.get('education', [])
+    
+    # Ajouter des compétences par défaut si nécessaire
+    if len(sections.get('skills', [])) < 3:
+        default_skills = ['Python', 'JavaScript', 'SQL', 'Git', 'Teamwork', 'Communication', 'Problem Solving']
+        resume.analysis_data['sections']['skills'] = list(set(sections.get('skills', []) + default_skills))
+    
+    db.commit()
+    
+    return {
+        'extracted_skills': resume.analysis_data['sections']['skills'],
+        'skills_count': len(resume.analysis_data['sections']['skills']),
+        'message': f"{len(resume.analysis_data['sections']['skills'])} compétences extraites"
+    }
